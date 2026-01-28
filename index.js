@@ -203,8 +203,14 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
     }
 });
 
-// --- HARMONOGRAMY ---
-cron.schedule('45 13 * * *', () => generateDailyTranscript());
+// Raport o 13:44 czasu polskiego
+cron.schedule('49 13 * * *', () => {
+    console.log("🕒 Generowanie raportu dziennego (Czas PL)...");
+    generateDailyTranscript();
+}, {
+    scheduled: true,
+    timezone: "Europe/Warsaw" // To wymusi polski czas
+});
 
 cron.schedule('0 */12 * * *', async () => {
     const today = new Date().toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
