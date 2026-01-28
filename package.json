@@ -1,12 +1,16 @@
 {
   "name": "nize-bot",
   "version": "1.0.0",
+  "description": "Bot do zarządzania dokumentami i moderacji",
   "main": "index.js",
   "dependencies": {
     "discord.js": "^14.14.1",
-    "dotenv": "^16.4.1",
     "pdf-lib": "^1.17.1",
     "axios": "^1.6.7",
-    "node-cron": "^3.0.3"
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2"
+  },
+  "scripts": {
+    "start": "node index.js"
   }
 }
