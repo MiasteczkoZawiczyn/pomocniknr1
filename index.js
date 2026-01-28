@@ -204,7 +204,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 });
 
 // Raport o 13:44 czasu polskiego
-cron.schedule('49 13 * * *', () => {
+cron.schedule('59 13 * * *', () => {
     console.log("🕒 Generowanie raportu dziennego (Czas PL)...");
     generateDailyTranscript();
 }, {
