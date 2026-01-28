@@ -4,7 +4,6 @@ const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
 const axios = require('axios');
 const express = require('express');
 
-// --- SERWER HTTP (Dla Render i Cron-job) ---
 const app = express();
 app.get('/', (req, res) => res.send('Bot NIZE is active!'));
 app.listen(process.env.PORT || 10000, () => console.log('Serwer HTTP gotowy.'));
