@@ -1,11 +1,17 @@
-# Klucz bota (Najważniejsze!)
+# Klucze i sekrety (NIGDY nie wysyłaj tego na GitHub!)
 .env
 
-# Biblioteki (Serwer sam je pobierze)
+# Biblioteki (Serwer zainstaluje je sam z package.json)
 node_modules/
 
-# Lokalna baza danych
+# Pliki bazy danych
 bot_data.db
+bot_data.db-journal
+
+# Logi i pliki tymczasowe
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Pliki systemowe
 .DS_Store
