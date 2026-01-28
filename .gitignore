@@ -1,5 +1,4 @@
-node_modules/
+node_modules
 .env
-bot_data.db
-bot_data.db-journal
-*.log
+*.ttf
+temp_*
