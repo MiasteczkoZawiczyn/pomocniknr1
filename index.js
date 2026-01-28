@@ -140,7 +140,7 @@ client.on(Events.MessageCreate, async message => {
     }
 });
 
-// --- SYSTEM URLOPÓW (Oryginalne teksty) ---
+// --- SYSTEM URLOPÓW ---
 client.on(Events.ThreadCreate, async thread => {
     if (thread.parentId === VACATION_FORUM_ID) {
         const embed = new EmbedBuilder()
@@ -173,7 +173,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
     }
 });
 
-// --- HARMONOGRAMY (Cron) ---
+// --- HARMONOGRAMY ---
 cron.schedule('59 23 * * *', () => generateDailyTranscript());
 
 cron.schedule('0 */12 * * *', async () => {
@@ -203,6 +203,10 @@ client.once(Events.ClientReady, async c => {
                 { name: 'osoby', type: 3, description: 'ID osób (po spacji)', required: true },
                 { name: 'temat', type: 3, description: 'Temat', required: true },
                 { name: 'wiadomosc', type: 3, description: 'Treść', required: true },
+                { name: 'zalacznik1', type: 11, description: 'Plik 1', required: false },
+                { name: 'zalacznik2', type: 11, description: 'Plik 2', required: false },
+                { name: 'zalacznik3', type: 11, description: 'Plik 3', required: false },
+                { name: 'zalacznik4', type: 11, description: 'Plik 4', required: false },
                 { name: 'pokaz_autora', type: 5, description: 'Czy pokazać autora?' }
             ]
         },
@@ -213,6 +217,10 @@ client.once(Events.ClientReady, async c => {
                 { name: 'kanal', type: 7, description: 'Kanał docelowy', required: true },
                 { name: 'temat', type: 3, description: 'Temat', required: true },
                 { name: 'wiadomosc', type: 3, description: 'Treść', required: true },
+                { name: 'zalacznik1', type: 11, description: 'Plik 1', required: false },
+                { name: 'zalacznik2', type: 11, description: 'Plik 2', required: false },
+                { name: 'zalacznik3', type: 11, description: 'Plik 3', required: false },
+                { name: 'zalacznik4', type: 11, description: 'Plik 4', required: false },
                 { name: 'pokaz_autora', type: 5, description: 'Czy pokazać autora?' }
             ]
         }
@@ -225,6 +233,14 @@ client.on(Events.InteractionCreate, async i => {
 
     const temat = i.options.getString('temat');
     const wiadomosc = i.options.getString('wiadomosc');
+    
+    // Obsługa wielu załączników
+    const files = [];
+    for (let n = 1; n <= 4; n++) {
+        const file = i.options.getAttachment(`zalacznik${n}`);
+        if (file) files.push(file);
+    }
+
     const embed = new EmbedBuilder().setTitle(temat).setDescription(wiadomosc).setColor(0x0099FF);
     if (i.options.getBoolean('pokaz_autora') !== false) embed.setFooter({ text: `Autor: ${i.user.displayName}` });
 
@@ -233,14 +249,14 @@ client.on(Events.InteractionCreate, async i => {
         const ids = i.options.getString('osoby').match(/\d+/g) || [];
         let s = 0;
         for (const id of ids) {
-            try { const u = await client.users.fetch(id); await u.send({ embeds: [embed] }); s++; } catch {}
+            try { const u = await client.users.fetch(id); await u.send({ embeds: [embed], files: files }); s++; } catch {}
         }
         await i.editReply(`Wysłano do ${s} osób.`);
     }
 
     if (i.commandName === 'mess') {
         const k = i.options.getChannel('kanal');
-        await k.send({ embeds: [embed] });
+        await k.send({ embeds: [embed], files: files });
         await i.reply({ content: `Wysłano na ${k}`, ephemeral: true });
     }
 });
