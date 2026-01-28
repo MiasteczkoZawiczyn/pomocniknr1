@@ -128,21 +128,51 @@ async function generateDailyTranscript() {
     } catch (e) { console.error("Błąd raportu:", e); }
 }
 
-// --- SYSTEM WIADOMOŚCI I TIKTOK ---
+// --- SYSTEM WIADOMOŚCI, TIKTOK I KOMENDY TEKSTOWE ---
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot) return;
 
+    // Logowanie do bazy
     db.prepare('INSERT INTO message_logs (channel_name, author, content, timestamp) VALUES (?, ?, ?, ?)')
       .run(message.channel.name || "Prywatny", message.author.tag, message.content, new Date().toLocaleString());
 
+    // TikTok Guard
     if (message.channelId === TIKTOK_CHANNEL_ID && !message.content.includes('tiktok.com')) {
         return message.delete().catch(() => {});
+    }
+
+    // KOMENDY TEKSTOWE (!)
+    if (message.content.startsWith('!')) {
+        const args = message.content.slice(1).trim().split(/ +/);
+        const command = args.shift().toLowerCase();
+
+        // Sprawdzenie uprawnień dla komend tekstowych
+        if (!message.member.roles.cache.has(AUTHORIZED_ROLE_ID)) return;
+
+        if (command === 'urlopy') {
+            const rows = db.prepare('SELECT * FROM vacations WHERE active = 1').all();
+            if (rows.length === 0) return message.reply("Brak aktywnych urlopów.");
+            
+            let list = "### 📅 AKTYWNE URLOPY:\n";
+            rows.forEach(r => {
+                list += `- <@${r.user_id}> do **${r.end_date}** (Powód: ${r.reason})\n`;
+            });
+            message.reply(list);
+        }
+
+        if (command === 'usunurl') {
+            const targetId = args[0]?.replace(/[<@!>]/g, '');
+            if (!targetId) return message.reply("Podaj ID lub oznacz osobę.");
+            
+            db.prepare('UPDATE vacations SET active = 0 WHERE user_id = ?').run(targetId);
+            message.reply(`✅ Usunięto aktywny urlop dla użytkownika <@${targetId}>.`);
+        }
     }
 });
 
 // --- SYSTEM URLOPÓW ---
 client.on(Events.ThreadCreate, async thread => {
-    if (thread.parentId === VACATION_FORUM_ID) {
+    if (thread.parentId === VACATION_FOR_ID) {
         const embed = new EmbedBuilder()
             .setTitle("✨ ZGŁOSZENIE URLOPU ✨")
             .setDescription(`**Uwaga!** <@${thread.ownerId}>, Twój urlop został zapisany w systemie, **ale nie jest jeszcze nadany**.\n\nOtrzymasz informację, gdy któryś z opiekunów nada urlop poprzez reakcję ✅.\nDo tego momentu Twój urlop nie jest aktywny.`)
@@ -234,7 +264,6 @@ client.on(Events.InteractionCreate, async i => {
     const temat = i.options.getString('temat');
     const wiadomosc = i.options.getString('wiadomosc');
     
-    // Obsługa wielu załączników
     const files = [];
     for (let n = 1; n <= 4; n++) {
         const file = i.options.getAttachment(`zalacznik${n}`);
