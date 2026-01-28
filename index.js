@@ -1,28 +1,8 @@
+const { Client, GatewayIntentBits, Partials, AttachmentBuilder, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { PDFDocument, rgb, degrees, StandardFonts } = require('pdf-lib');
+const fontkit = require('@fontkit/idle');
+const axios = require('axios');
 require('dotenv').config();
-const { 
-    Client, GatewayIntentBits, Partials, EmbedBuilder, 
-    AttachmentBuilder, Events, REST, Routes 
-} = require('discord.js');
-const { PDFDocument, rgb, degrees } = require('pdf-lib');
-const fontkit = require('@pdf-lib/fontkit');
-const Database = require('better-sqlite3');
-const express = require('express');
-const cron = require('node-cron');
-const fs = require('fs');
-
-// --- KONFIGURACJA ---
-const TOKEN = process.env.TOKEN;
-const AUTHORIZED_ROLE_ID = '1437194858375680102';
-const TIKTOK_CHANNEL_ID = '1437380571180306534';
-const VACATION_FORUM_ID = '1452784717802766397';
-const VACATION_LOG_CHANNEL_ID = '1462908198074974433';
-const WATERMARK_TEXT = "DISCORD.GG/TESTYPL";
-
-// --- BAZA DANYCH ---
-const db = new Database('bot_data.db');
-db.prepare('CREATE TABLE IF NOT EXISTS warns (user_id TEXT, reason TEXT, timestamp TEXT)').run();
-db.prepare('CREATE TABLE IF NOT EXISTS vacations (user_id TEXT, end_date TEXT, reason TEXT, active INTEGER)').run();
-db.prepare('CREATE TABLE IF NOT EXISTS message_logs (channel_name TEXT, author TEXT, content TEXT, timestamp TEXT)').run();
 
 const client = new Client({
     intents: [
@@ -30,270 +10,212 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.DirectMessages
     ],
-    partials: [Partials.Message, Partials.Channel, Partials.Reaction]
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction]
 });
 
-// --- KEEP ALIVE ---
-const app = express();
-app.get('/', (req, res) => res.send('Bot is running!'));
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`✅ Serwer HTTP aktywny na porcie ${PORT}`));
+// --- KONFIGURACJA ---
+const CONFIG = {
+    PREFIX: '!',
+    ROLE_ADMIN: '1437194858375680102',
+    CH_TIKTOK: '1437380571180306534',
+    CH_LOG_WARNS: '1441576106556788766',
+    CH_URLOPY: '1452784717802766397',
+    WATERMARK_URL: "https://discord.gg/TESTYPL",
+    WATERMARK_TEXT: "DISCORD.GG/TESTYPL",
+    FONT_BOLD: "https://raw.githubusercontent.com/MiasteczkoZawiczyn/pomocniknr1/main/Helvetica-Bold.ttf"
+};
 
-// --- LOGIKA PDF (Błękitne ramki i znaki wodne) ---
-async function processPDF(buffer) {
-    try {
-        const pdfDoc = await PDFDocument.load(buffer);
-        pdfDoc.registerFontkit(fontkit);
+// Bazy danych (w pamięci RAM - dla stałych danych użyj MongoDB/SQLite)
+let warnings = [];
+let urlopy = [];
 
-        const fontRegular = await pdfDoc.embedFont(fs.readFileSync('./Helvetica.ttf'));
-        const fontBold = await pdfDoc.embedFont(fs.readFileSync('./Helvetica-Bold.ttf'));
+// --- LOGIKA PDF (STOPKA 1:1) ---
+async function processPdf(buffer) {
+    const pdfDoc = await PDFDocument.load(buffer);
+    pdfDoc.registerFontkit(fontkit);
+    
+    // Pobieranie czcionki bold dla efektu 1:1
+    const fontBytes = await axios.get(CONFIG.FONT_BOLD, { responseType: 'arraybuffer' }).then(res => res.data);
+    const customFont = await pdfDoc.embedFont(fontBytes);
+    const pages = pdfDoc.getPages();
 
-        const pages = pdfDoc.getPages();
-        const currentTime = new Date().toLocaleString('pl-PL').replace(',', '');
+    for (const page of pages) {
+        const { width, height } = page.getSize();
+        
+        // Ramki (tło stopek)
+        page.drawRectangle({ x: 0, y: 0, width, height: 50, color: rgb(0.9, 0.95, 1) });
+        page.drawRectangle({ x: 0, y: height - 20, width, height: 20, color: rgb(0.9, 0.95, 1) });
+        page.drawRectangle({ x: width - 18, y: 0, width: 18, height, color: rgb(0.9, 0.95, 1) });
+        page.drawRectangle({ x: 0, y: 0, width: 15, height, color: rgb(0.9, 0.95, 1) });
 
-        for (const page of pages) {
-            const { width, height } = page.getSize();
-
-            const blueFill = rgb(0.9, 0.95, 1.0);
-            page.drawRectangle({ x: 0, y: 0, width: width, height: 50, color: blueFill });
-            page.drawRectangle({ x: 0, y: height - 20, width: width, height: 20, color: blueFill });
-            page.drawRectangle({ x: width - 18, y: 0, width: 18, height: height, color: blueFill });
-            page.drawRectangle({ x: 0, y: 0, width: 15, height: height, color: blueFill });
-
-            for (let i = 1; i <= 5; i++) {
-                page.drawText(WATERMARK_TEXT, {
-                    x: width / 2 - 120, y: (height / 6) * i,
-                    size: 35, font: fontBold, color: rgb(0, 0, 0), opacity: 0.07,
-                    rotate: degrees(i % 2 === 0 ? 15 : -15),
-                });
-            }
-
-            const drawCenter = (text, y, size, fontType) => {
-                const textWidth = fontType.widthOfTextAtSize(text, size);
-                page.drawText(text, { x: (width - textWidth) / 2, y, size, font: fontType, color: rgb(0, 0, 0) });
-            };
-
-            drawCenter(`DOKUMENT WYGENEROWANY DLA: ${WATERMARK_TEXT}`, height - 13, 8, fontBold);
-            drawCenter(`KONTAKT: manager3194 | duns0649 | nizekontakt@int.pl | nize@int.pl`, 35, 10, fontBold);
-            drawCenter(`W CELU ZAKUPU LUB PYTAŃ: ${WATERMARK_TEXT}`, 23, 8, fontBold);
-            drawCenter(`NIZE © 2026 - Wszelkie Prawa Zastrzeżone | DATA: ${currentTime}`, 10, 7, fontRegular);
-
-            const sideTxt = `DISCORD: manager3194 | duns0649 | ZAKUP: ${WATERMARK_TEXT} | EMAIL: nize@int.pl`;
-            const sideOptions = { size: 9, font: fontBold, rotate: degrees(90) };
-            page.drawText(sideTxt, { x: width - 6, y: height / 2 - 150, ...sideOptions });
-            page.drawText(sideTxt, { x: 10, y: height / 2 - 150, ...sideOptions });
+        // Centralne znaki wodne (półprzezroczyste)
+        for (let i = 1; i <= 5; i++) {
+            page.drawText(CONFIG.WATERMARK_TEXT, {
+                x: width / 2 + (i % 2 === 0 ? -30 : 30),
+                y: (height / 6) * i,
+                size: 35,
+                font: customFont,
+                color: rgb(0, 0, 0),
+                opacity: 0.07,
+                rotate: degrees(i % 2 === 0 ? 15 : -15),
+            });
         }
-        return await pdfDoc.save();
-    } catch (e) {
-        console.error("Błąd PDF:", e);
-        return buffer;
+
+        // Stopka tekstowa (uproszczony przykład pozycjonowania jak w Pythonie)
+        const dateStr = new Date().toISOString().replace('T', '/').slice(0, 16);
+        page.drawText(`NIZE © 2026 - Wszelkie Prawa Zastrzeżone | DATA: ${dateStr}`, {
+            x: width / 2 - 150,
+            y: 10,
+            size: 8,
+            font: customFont,
+            color: rgb(0, 0, 0)
+        });
     }
+
+    return await pdfDoc.save();
 }
 
-// --- GENEROWANIE TRANSKRYPTU ---
-async function generateDailyTranscript() {
-    try {
-        const rows = db.prepare('SELECT * FROM message_logs').all();
-        if (rows.length === 0) return;
+// --- EVENTY ---
 
-        const pdfDoc = await PDFDocument.create();
-        pdfDoc.registerFontkit(fontkit);
-        const fontRegular = await pdfDoc.embedFont(fs.readFileSync('./Helvetica.ttf'));
-        const fontBold = await pdfDoc.embedFont(fs.readFileSync('./Helvetica-Bold.ttf'));
-
-        let page = pdfDoc.addPage();
-        let { width, height } = page.getSize();
-        let yCursor = height - 100;
-
-        page.drawText(`RAPORT Z DNIA: ${new Date().toLocaleDateString('pl-PL')}`, { x: 50, y: height - 80, size: 18, font: fontBold });
-
-        for (const row of rows) {
-            if (yCursor < 80) { page = pdfDoc.addPage(); yCursor = height - 100; }
-            const cleanContent = row.content.replace(/[\n\r]/g, ' ').substring(0, 90);
-            page.drawText(`[#${row.channel_name}] ${row.author}: ${cleanContent}`, { x: 50, y: yCursor, size: 8, font: fontRegular });
-            yCursor -= 14;
-        }
-
-        const rawPdf = await pdfDoc.save();
-        const finalPdf = await processPDF(rawPdf);
-
-        const logChan = client.channels.cache.get(VACATION_LOG_CHANNEL_ID);
-        if (logChan) {
-            const attachment = new AttachmentBuilder(Buffer.from(finalPdf), { name: `Raport_${new Date().toLocaleDateString()}.pdf` });
-            await logChan.send({ content: "📊 **Automatyczny raport dzienny wszystkich wiadomości:**", files: [attachment] });
-        }
-        db.prepare('DELETE FROM message_logs').run();
-    } catch (e) { console.error("Błąd raportu:", e); }
-}
-
-// --- SYSTEM WIADOMOŚCI, TIKTOK I KOMENDY TEKSTOWE ---
-client.on(Events.MessageCreate, async message => {
+client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // Logowanie do bazy
-    db.prepare('INSERT INTO message_logs (channel_name, author, content, timestamp) VALUES (?, ?, ?, ?)')
-      .run(message.channel.name || "Prywatny", message.author.tag, message.content, new Date().toLocaleString());
-
-    // TikTok Guard
-    if (message.channelId === TIKTOK_CHANNEL_ID && !message.content.includes('tiktok.com')) {
-        return message.delete().catch(() => {});
-    }
-
-    // KOMENDY TEKSTOWE (!)
-    if (message.content.startsWith('!')) {
-        const args = message.content.slice(1).trim().split(/ +/);
-        const command = args.shift().toLowerCase();
-
-        // Sprawdzenie uprawnień dla komend tekstowych
-        if (!message.member.roles.cache.has(AUTHORIZED_ROLE_ID)) return;
-
-        if (command === 'urlopy') {
-            const rows = db.prepare('SELECT * FROM vacations WHERE active = 1').all();
-            if (rows.length === 0) return message.reply("Brak aktywnych urlopów.");
-            
-            let list = "### 📅 AKTYWNE URLOPY:\n";
-            rows.forEach(r => {
-                list += `- <@${r.user_id}> do **${r.end_date}** (Powód: ${r.reason})\n`;
-            });
-            message.reply(list);
-        }
-
-        if (command === 'usunurl') {
-            const targetId = args[0]?.replace(/[<@!>]/g, '');
-            if (!targetId) return message.reply("Podaj ID lub oznacz osobę.");
-            
-            db.prepare('UPDATE vacations SET active = 0 WHERE user_id = ?').run(targetId);
-            message.reply(`✅ Usunięto aktywny urlop dla użytkownika <@${targetId}>.`);
+    // 1. Filtr TikTok
+    if (message.channel.id === CONFIG.CH_TIKTOK) {
+        if (!message.content.includes('tiktok.com')) {
+            await message.delete();
+            return;
         }
     }
-});
 
-// --- SYSTEM URLOPÓW ---
-client.on(Events.ThreadCreate, async thread => {
-    if (thread.parentId === VACATION_FOR_ID) {
+    // 2. Automatyczna odpowiedź na urlop
+    if (message.channel.id === CONFIG.CH_URLOPY) {
+        message.reply(`Cześć ${message.author},\nTwój urlop został zapisany, ale opiekun musi zatwierdzić twoje zgłoszenie. Otrzymasz informację o zatwierdzeniu.`);
+    }
+
+    // --- KOMENDY ---
+    const args = message.content.slice(CONFIG.PREFIX.length).trim().split(/ +/);
+    const command = args.shift()?.toLowerCase();
+
+    if (!message.content.startsWith(CONFIG.PREFIX)) return;
+
+    // Sprawdzanie roli admina
+    const isAdmin = message.member.roles.cache.has(CONFIG.ROLE_ADMIN);
+    if (!isAdmin) return;
+
+    // !warn @user powod
+    if (command === 'warn') {
+        const target = message.mentions.members.first();
+        const reason = args.slice(1).join(' ') || 'Brak powodu';
+        if (!target) return message.reply('Oznacz kogo chcesz zwarnować.');
+
+        const warnObj = { id: Date.now(), userId: target.id, reason, date: new Date().toLocaleString() };
+        warnings.push(warnObj);
+
+        // Powiadomienie kanał logów
+        const logChannel = client.channels.cache.get(CONFIG.CH_LOG_WARNS);
+        logChannel.send(`⚠️ **WARN** | Użytkownik: ${target} | Powód: ${reason} | ID: ${warnObj.id}`);
+        
+        // PV do usera
+        try { await target.send(`Dostałeś warna na serwerze! Powód: ${reason}`); } catch(e) {}
+    }
+
+    // !unwarn @user
+    if (command === 'unwarn') {
+        const target = message.mentions.members.first();
+        if (!target) return message.reply('Oznacz osobę.');
+
+        const userWarns = warnings.filter(w => w.userId === target.id);
+        if (userWarns.length === 0) return message.reply('Ten użytkownik nie ma warnów.');
+
+        let list = userWarns.map((w, i) => `${i + 1}. [${w.date}] - ${w.reason} (ID: ${w.id})`).join('\n');
+        message.reply(`Wybierz numer warna do usunięcia (odpisz samym numerem):\n${list}`);
+
+        const filter = m => m.author.id === message.author.id;
+        const collector = message.channel.createMessageCollector({ filter, max: 1, time: 15000 });
+
+        collector.on('collect', m => {
+            const idx = parseInt(m.content) - 1;
+            if (userWarns[idx]) {
+                warnings = warnings.filter(w => w.id !== userWarns[idx].id);
+                message.reply('✅ Warn usunięty z systemu.');
+            }
+        });
+    }
+
+    // !urlopy
+    if (command === 'urlopy') {
+        if (urlopy.length === 0) return message.reply('Brak aktywnych urlopów.');
         const embed = new EmbedBuilder()
-            .setTitle("✨ ZGŁOSZENIE URLOPU ✨")
-            .setDescription(`**Uwaga!** <@${thread.ownerId}>, Twój urlop został zapisany w systemie, **ale nie jest jeszcze nadany**.\n\nOtrzymasz informację, gdy któryś z opiekunów nada urlop poprzez reakcję ✅.\nDo tego momentu Twój urlop nie jest aktywny.`)
-            .setColor(0xFFA500)
-            .setFooter({ text: "System Zarządzania NIZE PL" });
-        await thread.send({ embeds: [embed] });
+            .setTitle('Aktywne Urlopy')
+            .setDescription(urlopy.map(u => `<@${u.userId}> do ${u.date} - ${u.reason}`).join('\n'));
+        message.reply({ embeds: [embed] });
     }
 });
 
-client.on(Events.MessageReactionAdd, async (reaction, user) => {
-    if (user.bot || reaction.emoji.name !== '✅') return;
-    const member = await reaction.message.guild.members.fetch(user.id);
-    if (member.roles.cache.has(AUTHORIZED_ROLE_ID)) {
-        const thread = reaction.message.channel;
-        if (thread.isThread() && thread.parentId === VACATION_FORUM_ID) {
-            const msgs = await thread.messages.fetch({ limit: 10, after: '0' });
-            const first = msgs.last();
-            const dateMatch = first.content.match(/(\d{2}\.\d{2}\.\d{4})/);
-            const reasonMatch = first.content.split("Z powodu")[1]?.trim() || "Nie podano";
+// --- SLASH COMMANDS (Wiadomości z plikami) ---
+// Uwaga: W JS lepiej użyć Slash Commands (/) lub zwykłych komend. Tutaj obsłużymy prefixową wersję komendy /wiad
+client.on('messageCreate', async (message) => {
+    if (!message.content.startsWith('/') || message.author.bot) return;
+    if (!message.member.roles.cache.has(CONFIG.ROLE_ADMIN)) return;
 
-            if (dateMatch) {
-                db.prepare('INSERT INTO vacations (user_id, end_date, reason, active) VALUES (?, ?, ?, 1)').run(first.author.id, dateMatch[0], reasonMatch);
-                const msg_text = `Cześć <@${first.author.id}>,\nOpiekun **${user.username}** nadał Twój urlop.\n📅 Koniec: **${dateMatch[0]}**\n📝 Powód: *${reasonMatch}*\nMiłego wypoczynku!`;
-                await thread.send(msg_text);
-                first.author.send(msg_text).catch(() => {});
+    const parts = message.content.split(' ');
+    const cmd = parts[0];
+
+    if (cmd === '/wiad' || cmd === '/pv') {
+        const channelOrUser = message.mentions.channels.first() || message.mentions.users.first();
+        const text = parts.slice(2).join(' ');
+        
+        message.channel.send("⏳ Przetwarzam pliki...");
+
+        const attachments = [];
+        for (const [id, att] of message.attachments) {
+            if (att.name.endsWith('.pdf')) {
+                const res = await axios.get(att.url, { responseType: 'arraybuffer' });
+                const modifiedPdf = await processPdf(res.data);
+                attachments.push(new AttachmentBuilder(Buffer.from(modifiedPdf), { name: `NIZE_${att.name}` }));
+            } else {
+                attachments.push(new AttachmentBuilder(att.url, { name: att.name }));
             }
         }
-    }
-});
 
-// Raport o 13:44 czasu polskiego
-cron.schedule('59 13 * * *', () => {
-    console.log("🕒 Generowanie raportu dziennego (Czas PL)...");
-    generateDailyTranscript();
-}, {
-    scheduled: true,
-    timezone: "Europe/Warsaw" // To wymusi polski czas
-});
-
-cron.schedule('0 */12 * * *', async () => {
-    const today = new Date().toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const expired = db.prepare('SELECT user_id FROM vacations WHERE end_date = ? AND active = 1').all(today);
-    expired.forEach(async row => {
-        const msg = `🔔 Urlop <@${row.user_id}> właśnie się zakończył!`;
-        [VACATION_LOG_CHANNEL_ID, TIKTOK_CHANNEL_ID].forEach(id => {
-            const ch = client.channels.cache.get(id);
-            if (ch) ch.send(msg);
-        });
-        const user = await client.users.fetch(row.user_id).catch(() => null);
-        if (user) user.send("Twój urlop w NIZE PL dobiegł końca.").catch(() => {});
-        db.prepare('UPDATE vacations SET active = 0 WHERE user_id = ?').run(row.user_id);
-    });
-});
-
-// --- START I KOMENDY SLASH ---
-client.once(Events.ClientReady, async c => {
-    console.log(`✅ Bot ${c.user.tag} Online`);
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
-    await rest.put(Routes.applicationCommands(c.user.id), { body: [
-        {
-            name: 'pv',
-            description: 'Wysyła wiadomość do wielu osób',
-            options: [
-                { name: 'osoby', type: 3, description: 'ID osób (po spacji)', required: true },
-                { name: 'temat', type: 3, description: 'Temat', required: true },
-                { name: 'wiadomosc', type: 3, description: 'Treść', required: true },
-                { name: 'zalacznik1', type: 11, description: 'Plik 1', required: false },
-                { name: 'zalacznik2', type: 11, description: 'Plik 2', required: false },
-                { name: 'zalacznik3', type: 11, description: 'Plik 3', required: false },
-                { name: 'zalacznik4', type: 11, description: 'Plik 4', required: false },
-                { name: 'pokaz_autora', type: 5, description: 'Czy pokazać autora?' }
-            ]
-        },
-        {
-            name: 'mess',
-            description: 'Wysyła wiadomość na kanał',
-            options: [
-                { name: 'kanal', type: 7, description: 'Kanał docelowy', required: true },
-                { name: 'temat', type: 3, description: 'Temat', required: true },
-                { name: 'wiadomosc', type: 3, description: 'Treść', required: true },
-                { name: 'zalacznik1', type: 11, description: 'Plik 1', required: false },
-                { name: 'zalacznik2', type: 11, description: 'Plik 2', required: false },
-                { name: 'zalacznik3', type: 11, description: 'Plik 3', required: false },
-                { name: 'zalacznik4', type: 11, description: 'Plik 4', required: false },
-                { name: 'pokaz_autora', type: 5, description: 'Czy pokazać autora?' }
-            ]
+        if (cmd === '/wiad' && channelOrUser) {
+            await channelOrUser.send({ content: text, files: attachments });
+        } else if (cmd === '/pv' && channelOrUser) {
+            await channelOrUser.send({ content: text, files: attachments });
         }
-    ]});
+        message.channel.send("✅ Wysłano.");
+    }
 });
 
-client.on(Events.InteractionCreate, async i => {
-    if (!i.isChatInputCommand()) return;
-    if (!i.member.roles.cache.has(AUTHORIZED_ROLE_ID)) return i.reply({ content: 'Brak uprawnień.', ephemeral: true });
+// --- SYSTEM ZATWIERDZANIA URLOPÓW ---
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+    if (reaction.emoji.name === '✅' && reaction.message.channel.id === CONFIG.CH_URLOPY) {
+        const member = await reaction.message.guild.members.fetch(user.id);
+        if (!member.roles.cache.has(CONFIG.ROLE_ADMIN)) return;
 
-    const temat = i.options.getString('temat');
-    const wiadomosc = i.options.getString('wiadomosc');
-    
-    const files = [];
-    for (let n = 1; n <= 4; n++) {
-        const file = i.options.getAttachment(`zalacznik${n}`);
-        if (file) files.push(file);
-    }
+        // Parsowanie wzoru: "do dnia 29.01.2026 Z powodu 123"
+        const content = reaction.message.content;
+        const dateMatch = content.match(/do dnia (\d{2}\.\d{2}\.\d{4})/);
+        const reasonMatch = content.split('Z powodu')[1];
 
-    const embed = new EmbedBuilder().setTitle(temat).setDescription(wiadomosc).setColor(0x0099FF);
-    if (i.options.getBoolean('pokaz_autora') !== false) embed.setFooter({ text: `Autor: ${i.user.displayName}` });
-
-    if (i.commandName === 'pv') {
-        await i.deferReply({ ephemeral: true });
-        const ids = i.options.getString('osoby').match(/\d+/g) || [];
-        let s = 0;
-        for (const id of ids) {
-            try { const u = await client.users.fetch(id); await u.send({ embeds: [embed], files: files }); s++; } catch {}
+        if (dateMatch) {
+            const urlop = {
+                userId: reaction.message.author.id,
+                date: dateMatch[1],
+                reason: reasonMatch ? reasonMatch.trim() : 'Brak powodu'
+            };
+            urlopy.push(urlop);
+            
+            reaction.message.reply(`✅ Urlop użytkownika <@${urlop.userId}> został zatwierdzony przez <@${user.id}>.`);
+            try {
+                await reaction.message.author.send(`Twój urlop do dnia ${urlop.date} został zatwierdzony!`);
+            } catch(e) {}
         }
-        await i.editReply(`Wysłano do ${s} osób.`);
-    }
-
-    if (i.commandName === 'mess') {
-        const k = i.options.getChannel('kanal');
-        await k.send({ embeds: [embed], files: files });
-        await i.reply({ content: `Wysłano na ${k}`, ephemeral: true });
     }
 });
 
-client.login(TOKEN);
+client.login(process.env.TOKEN);
