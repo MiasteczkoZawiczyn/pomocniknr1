@@ -1,21 +1,4 @@
-# Zależności (pobierane przez npm install)
-node_modules/
-
-# Pliki środowiskowe (TOKENY, SEKRETY - nigdy nie publikuj!)
+node_modules
 .env
-.env.local
-
-# Logi błędów
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-logs/
-*.log
-
-# Pliki systemowe
-.DS_Store
-Thumbs.db
-
-# Pliki tymczasowe i PDFy (jeśli bot jakieś zapisuje lokalnie)
-temp_*
 *.pdf
+*.ttf
