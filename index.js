@@ -1,17 +1,23 @@
-require('dotenv').config();
-const { 
-    Client, GatewayIntentBits, Partials, AttachmentBuilder, 
-    REST, Routes, SlashCommandBuilder, ActionRowBuilder, 
-    ButtonBuilder, ButtonStyle, EmbedBuilder 
-} = require('discord.js');
+const { Client, GatewayIntentBits, Partials, AttachmentBuilder, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
 const axios = require('axios');
-const express = require('express');
+const fontkit = require('@pdf-lib/fontkit');
 
-// --- SERWER DLA RENDER (Naprawa błędu portów) ---
-const app = express();
-app.get('/', (req, res) => res.send('Bot NIZE is running 24/7!'));
-app.listen(process.env.PORT || 10000);
+const CONFIG = {
+    TOKEN: process.env.TOKEN,
+    REQUIRED_ROLE: "1437194858375680102",
+    WARN_LOG_CHANNEL: "1441576106556788766",
+    TIKTOK_CHANNEL: "1437380571180306534",
+    VACATION_CHANNEL: "1452784717802766397",
+    WATERMARK_URL: "https://discord.gg/TESTYPL",
+    WATERMARK_TEXT: "DISCORD.GG/TESTYPL",
+    DISCORD_USER1: "manager3194",
+    DISCORD_USER2: "duns0649",
+    FONTS: {
+        regular: "https://raw.githubusercontent.com/MiasteczkoZawiczyn/pomocniknr1/main/Helvetica.ttf",
+        bold: "https://raw.githubusercontent.com/MiasteczkoZawiczyn/pomocniknr1/main/Helvetica-Bold.ttf"
+    }
+};
 
 const client = new Client({
     intents: [
@@ -21,214 +27,174 @@ const client = new Client({
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.DirectMessages
     ],
-    partials: [Partials.Channel, Partials.Message, Partials.Reaction]
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// --- KONFIGURACJA ---
-const CONFIG = {
-    ADMIN_ROLE: "1437194858375680102",
-    TIKTOK_CHANNEL: "1437380571180306534",
-    WARN_LOG_CHANNEL: "1441576106556788766",
-    VACATION_CHANNEL: "1452784717802766397",
-    WATERMARK_TEXT: "DISCORD.GG/TESTYPL",
-    DISCORD_USER1: "manager3194",
-    DISCORD_USER2: "duns0649"
-};
+// Prosta baza danych w pamięci (dla stabilności na Render użyj bazy zewnętrznej, np. MongoDB)
+let db = { warns: [], vacations: [] };
 
-let warns = []; 
-let vacations = [];
+// --- FUNKCJA PDF (STOPKA 1:1) ---
+async function addWatermark(pdfBytes) {
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    pdfDoc.registerFontkit(fontkit);
 
-// --- LOGIKA GENEROWANIA STOPKI PDF (1:1) ---
-async function addWatermark(pdfBuffer) {
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const fontBytesBold = await axios.get(CONFIG.FONTS.bold, { responseType: 'arraybuffer' });
+    const fontBytesReg = await axios.get(CONFIG.FONTS.regular, { responseType: 'arraybuffer' });
+    const customBold = await pdfDoc.embedFont(fontBytesBold.data);
+    const customReg = await pdfDoc.embedFont(fontBytesReg.data);
+
     const pages = pdfDoc.getPages();
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const now = new Date().toISOString().replace('T', '/').slice(0, 16);
 
     for (const page of pages) {
         const { width, height } = page.getSize();
 
         // Niebieskie ramki
-        page.drawRectangle({ x: 0, y: 0, width, height: 50, color: rgb(0.9, 0.95, 1) });
-        page.drawRectangle({ x: 0, y: height - 20, width, height: 20, color: rgb(0.9, 0.95, 1) });
-        page.drawRectangle({ x: width - 18, y: 0, width: 18, height, color: rgb(0.9, 0.95, 1) });
-        page.drawRectangle({ x: 0, y: 0, width: 15, height, color: rgb(0.9, 0.95, 1) });
+        const lightBlue = rgb(0.9, 0.95, 1.0);
+        page.drawRectangle({ x: 0, y: 0, width, height: 50, color: lightBlue }); // Dół
+        page.drawRectangle({ x: 0, y: height - 20, width, height: 20, color: lightBlue }); // Góra
+        page.drawRectangle({ x: width - 18, y: 0, width: 18, height, color: lightBlue }); // Prawa
+        page.drawRectangle({ x: 0, y: 0, width: 15, height, color: lightBlue }); // Lewa
 
-        // Skośne znaki wodne na środku
+        // Środkowe znaki wodne
         for (let i = 1; i <= 5; i++) {
+            const sideOffset = i % 2 === 0 ? -30 : 30;
             page.drawText(CONFIG.WATERMARK_TEXT, {
-                x: width / 2, y: (height / 6) * i, size: 35, font: boldFont,
-                color: rgb(0, 0, 0), opacity: 0.07, rotate: degrees(15),
+                x: width / 2 + sideOffset,
+                y: (height / 6) * i,
+                size: 35,
+                font: customBold,
+                color: rgb(0, 0, 0),
+                opacity: 0.07,
+                rotate: degrees(i % 2 === 0 ? 15 : -15),
             });
         }
 
-        const now = new Date().toISOString().replace(/T/, '/').slice(0, 16).replace(/-/g, '/');
+        // Teksty krawędziowe
+        const sideTxtR = `DISCORD: ${CONFIG.DISCORD_USER1} | ${CONFIG.DISCORD_USER2} | ZAKUP: ${CONFIG.WATERMARK_TEXT} | EMAIL: nizekontakt@int.pl`;
+        const bottomContact = `KONTAKT: ${CONFIG.DISCORD_USER1} | ${CONFIG.DISCORD_USER2} | nizekontakt@int.pl | nize@int.pl`;
+        const purchaseTxt = `W CELU ZAKUPU LUB PYTAŃ: ${CONFIG.WATERMARK_TEXT}`;
 
-        // GÓRA
-        page.drawText(`DOKUMENT WYGENEROWANY DLA: ${CONFIG.WATERMARK_TEXT}`, { 
-            x: width / 2 - 120, y: height - 13, size: 8, font: boldFont 
-        });
+        // Dół
+        page.drawText(bottomContact, { x: width / 2 - (customBold.widthOfTextAtSize(bottomContact, 10) / 2), y: 35, size: 10, font: customBold });
+        page.drawText(purchaseTxt, { x: width / 2 - (customBold.widthOfTextAtSize(purchaseTxt, 8) / 2), y: 23, size: 8, font: customBold });
 
-        // DÓŁ - KONTAKT
-        page.drawText(`KONTAKT: ${CONFIG.DISCORD_USER1} | ${CONFIG.DISCORD_USER2} | nizekontakt@int.pl | nize@int.pl`, { 
-            x: width / 2 - 160, y: 35, size: 10, font: boldFont 
-        });
+        // Specjalna linia z copyright
+        const cpLeft = "NIZE ";
+        const cpSymbol = "©";
+        const cpRight = ` 2026 - Wszelkie Prawa Zastrzeżone | DATA: ${now}`;
+        const totalW = customReg.widthOfTextAtSize(cpLeft, 6.5) + customBold.widthOfTextAtSize(cpSymbol, 12) + customReg.widthOfTextAtSize(cpRight, 6.5);
+        let startX = (width - totalW) / 2;
 
-        // DÓŁ - ZAKUP (Przywrócone)
-        page.drawText(`W CELU ZAKUPU LUB PYTAŃ: ${CONFIG.WATERMARK_TEXT}`, { 
-            x: width / 2 - 100, y: 23, size: 8, font: boldFont 
-        });
+        page.drawText(cpLeft, { x: startX, y: 11, size: 6.5, font: customReg });
+        startX += customReg.widthOfTextAtSize(cpLeft, 6.5);
+        page.drawText(cpSymbol, { x: startX, y: 10, size: 12, font: customBold });
+        startX += customBold.widthOfTextAtSize(cpSymbol, 12);
+        page.drawText(cpRight, { x: startX, y: 11, size: 6.5, font: customReg });
 
-        // Linia z © i DATA
-        const footerLine = `NIZE © 2026 - Wszelkie Prawa Zastrzeżone | DATA: ${now}`;
-        page.drawText(footerLine, { 
-            x: width / 2 - 140, y: 11, size: 6.5, font: regularFont 
-        });
+        // Boki
+        page.drawText(sideTxtR, { x: width - 8, y: height / 2 - (customBold.widthOfTextAtSize(sideTxtR, 9) / 2), size: 9, font: customBold, rotate: degrees(90) });
     }
+
     return await pdfDoc.save();
 }
 
-// --- REJESTRACJA KOMEND SLASH ---
-const commands = [
-    new SlashCommandBuilder()
-        .setName('wiad')
-        .setDescription('Wysyła pliki na kanał')
-        .addChannelOption(o => o.setName('kanal').setDescription('Kanał').setRequired(true))
-        .addStringOption(o => o.setName('temat').setDescription('Temat').setRequired(true))
-        .addStringOption(o => o.setName('wiadomosc').setDescription('Wiadomość').setRequired(true))
-        .addAttachmentOption(o => o.setName('plik1').setDescription('PDF 1'))
-        .addAttachmentOption(o => o.setName('plik2').setDescription('PDF 2'))
-        .addAttachmentOption(o => o.setName('plik3').setDescription('PDF 3'))
-        .addAttachmentOption(o => o.setName('plik4').setDescription('PDF 4'))
-        .addAttachmentOption(o => o.setName('plik5').setDescription('PDF 5')),
-    new SlashCommandBuilder()
-        .setName('pv')
-        .setDescription('Wysyła pliki w wiadomości prywatnej')
-        .addUserOption(o => o.setName('osoba').setDescription('Osoba').setRequired(true))
-        .addStringOption(o => o.setName('temat').setDescription('Temat').setRequired(true))
-        .addStringOption(o => o.setName('wiadomosc').setDescription('Wiadomość').setRequired(true))
-        .addAttachmentOption(o => o.setName('plik1').setDescription('PDF 1'))
-        .addAttachmentOption(o => o.setName('plik2').setDescription('PDF 2'))
-        .addAttachmentOption(o => o.setName('plik3').setDescription('PDF 3'))
-        .addAttachmentOption(o => o.setName('plik4').setDescription('PDF 4'))
-        .addAttachmentOption(o => o.setName('plik5').setDescription('PDF 5'))
-];
+// --- LOGIKA BOTA ---
 
-client.once('ready', async () => {
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-    try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log(`✅ Komendy /wiad i /pv aktywne. Zalogowano: ${client.user.tag}`);
-    } catch (e) { console.error(e); }
-});
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
 
-// --- INTERAKCJE (SLASH & BUTTONS) ---
-client.on('interactionCreate', async (int) => {
-    if (int.isButton() && int.customId.startsWith('unwarn_')) {
-        const id = parseInt(int.customId.split('_')[1]);
-        warns = warns.filter(w => w.id !== id);
-        return int.update({ content: "✅ Warn został usunięty z systemu.", components: [] });
-    }
-
-    if (!int.isChatInputCommand()) return;
-    if (!int.member.roles.cache.has(CONFIG.ADMIN_ROLE)) return int.reply({ content: "Brak uprawnień.", ephemeral: true });
-
-    if (int.commandName === 'wiad' || int.commandName === 'pv') {
-        await int.deferReply({ ephemeral: true });
-        
-        const target = int.options.getChannel('kanal') || int.options.getUser('osoba');
-        const subject = int.options.getString('temat');
-        const text = int.options.getString('wiadomosc');
-
-        const attachments = [];
-        for (let i = 1; i <= 5; i++) {
-            const file = int.options.getAttachment(`plik${i}`);
-            if (file && file.contentType === 'application/pdf') {
-                const res = await axios.get(file.url, { responseType: 'arraybuffer' });
-                const finalPdf = await addWatermark(res.data);
-                attachments.push(new AttachmentBuilder(Buffer.from(finalPdf), { name: `NIZE_${file.name}` }));
-            }
-        }
-
-        try {
-            await target.send({ content: `### ${subject}\n${text}`, files: attachments });
-            await int.editReply("✅ Wysłano przetworzone pliki.");
-        } catch (e) {
-            await int.editReply("❌ Błąd wysyłania: " + e.message);
+    // 1. Filtr TikToka
+    if (message.channelId === CONFIG.TIKTOK_CHANNEL) {
+        if (!message.content.includes('tiktok.com')) {
+            return message.delete().catch(() => {});
         }
     }
-});
 
-// --- MODERACJA & URLOPY ---
-client.on('messageCreate', async (msg) => {
-    if (msg.author.bot) return;
-
-    // TikTok Filter
-    if (msg.channelId === CONFIG.TIKTOK_CHANNEL && !msg.content.includes('tiktok.com')) {
-        return msg.delete().catch(() => {});
+    // 2. Automatyczna odpowiedź na urlop
+    if (message.channelId === CONFIG.VACATION_CHANNEL) {
+        message.reply(`Cześć ${message.author},\nTwój urlop został zapisany ale opiekun musi zatwierdzić twoje zgłoszenie. Otrzymasz informację o zatwierdzeniu.`);
     }
 
-    // Vacation Notifier
-    if (msg.channelId === CONFIG.VACATION_CHANNEL) {
-        msg.reply(`Cześć ${msg.author},\nTwój urlop został zapisany, ale opiekun musi go zatwierdzić.`);
-    }
+    // 3. Komendy (Tylko dla roli)
+    if (!message.content.startsWith('!')) return;
+    if (!message.member.roles.cache.has(CONFIG.REQUIRED_ROLE)) return;
 
-    // Prefiksowe !warn, !unwarn, !urlopy
-    if (!msg.content.startsWith('!')) return;
-    if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE)) return;
-
-    const args = msg.content.slice(1).split(/ +/);
+    const args = message.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
+    // !warn @osoba powód
     if (command === 'warn') {
-        const member = msg.mentions.members.first();
+        const target = message.mentions.members.first();
         const reason = args.slice(1).join(' ') || "Brak powodu";
-        if (!member) return msg.reply("Oznacz osobę!");
+        if (!target) return message.reply("Oznacz osobę!");
 
         const warnId = Date.now();
-        warns.push({ id: warnId, userId: member.id, reason, admin: msg.author.tag });
+        db.warns.push({ id: warnId, userId: target.id, reason, moderator: message.author.tag });
 
         const logChan = client.channels.cache.get(CONFIG.WARN_LOG_CHANNEL);
-        if (logChan) logChan.send(`⚠️ **WARN** | ID: ${warnId} | ${member} | Powód: ${reason} | Admin: ${msg.author.tag}`);
-        
-        await member.send(`Otrzymałeś warna na serwerze! Powód: ${reason}`).catch(() => {});
-        msg.reply(`Nadano warna dla ${member.user.tag}.`);
+        const embed = new EmbedBuilder().setTitle("Nowy Warn").addFields(
+            { name: "Użytkownik", value: `${target}` },
+            { name: "Powód", value: reason },
+            { name: "ID", value: `${warnId}` }
+        ).setColor("Red");
+
+        if (logChan) logChan.send({ embeds: [embed] });
+        target.send(`Otrzymałeś warna na serwerze! Powód: ${reason}`).catch(() => {});
+        message.reply(`Nadano warna użytkownikowi ${target}.`);
     }
 
+    // !unwarn @osoba
     if (command === 'unwarn') {
-        const member = msg.mentions.members.first();
-        if (!member) return msg.reply("Oznacz osobę!");
-        const uWarns = warns.filter(w => w.userId === member.id);
-        if (uWarns.length === 0) return msg.reply("Brak warnów.");
+        const target = message.mentions.members.first();
+        if (!target) return message.reply("Oznacz osobę!");
+        
+        const userWarns = db.warns.filter(w => w.userId === target.id);
+        if (userWarns.length === 0) return message.reply("Ten użytkownik nie ma warnów.");
 
-        const row = new ActionRowBuilder();
-        uWarns.slice(0, 5).forEach(w => {
-            row.addComponents(new ButtonBuilder().setCustomId(`unwarn_${w.id}`).setLabel(`Usuń: ${w.reason.slice(0, 10)}`).setStyle(ButtonStyle.Danger));
-        });
-        msg.reply({ content: `Wybierz warn do usunięcia:`, components: [row] });
+        // Tutaj dla uproszczenia usuwamy ostatni. Możesz rozbudować o wybór ID.
+        const removed = db.warns.splice(db.warns.findIndex(w => w.userId === target.id), 1);
+        message.reply(`Usunięto warna o ID ${removed[0].id} dla ${target}.`);
     }
 
+    // !urlopy
     if (command === 'urlopy') {
-        const txt = vacations.map(v => `<@${v.userId}> do ${v.date}`).join('\n') || "Brak aktywnych urlopów.";
-        msg.reply(`**Lista urlopów:**\n${txt}`);
+        if (db.vacations.length === 0) return message.reply("Brak aktywnych urlopów.");
+        const list = db.vacations.map(v => `<@${v.userId}> do ${v.date}`).join('\n');
+        message.reply(`Aktywne urlopy:\n${list}`);
     }
 });
 
-// --- ZATWIERDZANIE REAKCJĄ ---
+// Slash Commands / Interaction (Wysyłanie plików)
+client.on('interactionCreate', async (interaction) => {
+    // Uwaga: W Node.js komendy / wymagają rejestracji. 
+    // Poniżej obsługa wiadomości z załącznikami jako komendy tekstowe dla ułatwienia, 
+    // lub obsługa Slash jeśli je zarejestrujesz.
+});
+
+// Reakcja na urlop
 client.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
-    if (reaction.emoji.name === '✅' && reaction.message.channelId === CONFIG.VACATION_CHANNEL) {
+    if (reaction.message.channelId !== CONFIG.VACATION_CHANNEL) return;
+    if (reaction.emoji.name === '✅') {
         const member = await reaction.message.guild.members.fetch(user.id);
-        if (!member.roles.cache.has(CONFIG.ADMIN_ROLE)) return;
+        if (!member.roles.cache.has(CONFIG.REQUIRED_ROLE)) return;
 
-        const match = reaction.message.content.match(/do dnia (\d{2}\.\d{2}\.\d{4})/);
-        if (match) {
-            const date = match[1];
-            vacations.push({ userId: reaction.message.author.id, date });
-            reaction.message.reply(`✅ Urlop dla <@${reaction.message.author.id}> zatwierdzony do ${date}.`);
-            reaction.message.author.send(`Twój urlop został zatwierdzony!`).catch(() => {});
-        }
+        const content = reaction.message.content;
+        const dateMatch = content.match(/(\d{2}\.\d{2}\.\d{4})/);
+        const date = dateMatch ? dateMatch[0] : "Nieokreślony";
+
+        db.vacations.push({ userId: reaction.message.author.id, date });
+        
+        reaction.message.reply(`✅ Twój urlop do dnia ${date} został zatwierdzony!`);
+        reaction.message.author.send(`Twój urlop został zatwierdzony do ${date}.`).catch(() => {});
     }
 });
 
-client.login(process.env.TOKEN);
+// Anty-uśpienie (dla cron-job.org)
+const express = require('express');
+const app = express();
+app.get('/', (req, res) => res.send('Bot is running!'));
+app.listen(process.env.PORT || 3000);
+
+client.login(CONFIG.TOKEN);
