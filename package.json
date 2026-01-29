@@ -1,13 +1,15 @@
 {
   "name": "nize-bot",
   "version": "1.0.0",
-  "description": "Bot Discord w Node.js",
   "main": "index.js",
   "dependencies": {
     "discord.js": "^14.14.1",
     "pdf-lib": "^1.17.1",
     "@pdf-lib/fontkit": "^1.1.1",
-    "axios": "^1.6.0",
-    "node-cron": "^3.0.3"
+    "axios": "^1.6.7",
+    "express": "^4.18.2"
+  },
+  "scripts": {
+    "start": "node index.js"
   }
 }
