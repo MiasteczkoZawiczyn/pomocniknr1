@@ -30,10 +30,8 @@ const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// Prosta baza danych w pamięci (dla stabilności na Render użyj bazy zewnętrznej, np. MongoDB)
 let db = { warns: [], vacations: [] };
 
-// --- FUNKCJA PDF (STOPKA 1:1) ---
 async function addWatermark(pdfBytes) {
     const pdfDoc = await PDFDocument.load(pdfBytes);
     pdfDoc.registerFontkit(fontkit);
