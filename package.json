@@ -1,0 +1,18 @@
+{
+  "name": "nize-watermark-bot",
+  "version": "1.0.0",
+  "description": "Discord bot do nakładania znaków wodnych na PDF",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "pdf-lib": "^1.17.1"
+  },
+  "author": "TwojaNazwa",
+  "license": "ISC"
+}
