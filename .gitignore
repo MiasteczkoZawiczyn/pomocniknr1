@@ -1,0 +1,13 @@
+# Biblioteki (zostaną pobrane przez serwer automatycznie)
+node_modules/
+
+# Plik z poufnymi danymi (Token, ID)
+.env
+
+# Logi błędów
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Systemowe pliki tymczasowe
+.DS_Store
